@@ -39,23 +39,26 @@ func parent() {
 func child() {
 	fmt.Printf("Running %v as %d\n", os.Args[2:], os.Getpid())
 
-	must(syscall.Sethostname([]byte("container")))
-	must(syscall.Mount("proc", "./root/proc", "proc", uintptr(syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV), ""))
-	must(syscall.Chroot("./root"))
-	must(syscall.Chdir("/"))
-
-	// must(os.MkdirAll("rootfs/oldrootfs", 0700))
-	// must(syscall.PivotRoot("rootfs", "rootfs/oldrootfs"))
+	try(syscall.Sethostname([]byte("container")))
+	try(syscall.Mount("proc", "/root/rootfs/proc", "proc", uintptr(syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV), ""))
+	try(syscall.Chdir("/root"))
+	try(syscall.Mount("rootfs", "/root/rootfs", "", syscall.MS_BIND | syscall.MS_REC, ""))
+	try(os.MkdirAll("/root/rootfs/oldrootfs", 0700))
+	try(syscall.PivotRoot("rootfs", "/root/rootfs/oldrootfs"))
+	fmt.Println("reached")
+	try(syscall.Unmount("/oldrootfs", syscall.MNT_DETACH))
+	try(os.RemoveAll("/oldrootfs"))
+	try(os.Chdir("/"))
 
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	must(cmd.Run())
+	try(cmd.Run())
 
 }
 
-func must(err error) {
+func try(err error) {
 	if err != nil {
 		panic(err)
 	}

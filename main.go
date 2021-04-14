@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"golang.org/x/sys/unix"
 	"os"
 	"os/exec"
 	"path"
-	"syscall"
 )
 
 func main() {
@@ -23,11 +23,11 @@ func parent() {
 	fmt.Printf("Running %v as %d\n", os.Args[2:], os.Getpid())
 
 	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUTS |
-			syscall.CLONE_NEWPID |
-			syscall.CLONE_NEWNS,
-		// syscall.CLONE_NEWUSER,
+	cmd.SysProcAttr = &unix.SysProcAttr{
+		Cloneflags: unix.CLONE_NEWUTS |
+			unix.CLONE_NEWPID |
+			unix.CLONE_NEWNS |
+			unix.CLONE_NEWUSER,
 	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -42,13 +42,13 @@ func parent() {
 func child() error {
 	fmt.Printf("Running %v as %d\n", os.Args[2:], os.Getpid())
 
-	if err := syscall.Sethostname([]byte("container")); err != nil {
+	if err := unix.Sethostname([]byte("container")); err != nil {
 		fmt.Printf("Cannot change hostname: %v\n", err)
 	}
 
 	pivotBase := "./root"
 	rootfs := "rootfs"
-	if err := syscall.Mount("proc", path.Join(pivotBase, rootfs, "proc"), "proc", uintptr(syscall.MS_NOEXEC|syscall.MS_NOSUID|syscall.MS_NODEV), ""); err != nil {
+	if err := unix.Mount("proc", path.Join(pivotBase, rootfs, "proc"), "proc", uintptr(unix.MS_NOEXEC|unix.MS_NOSUID|unix.MS_NODEV), ""); err != nil {
 		fmt.Printf("Cannot mount proc: %v\n", err)
 		return err
 	}
@@ -69,13 +69,13 @@ func child() error {
 }
 
 func pivotRoot(pivotBase string, rootfs string) error {
-	if err := syscall.Chdir(pivotBase); err != nil {
+	if err := unix.Chdir(pivotBase); err != nil {
 		fmt.Printf("Cannot change dir to %s: %v\n", pivotBase, err)
 		return err
 	}
 
 	// Cannot mount 'root/rootfs' from '../root'.
-	if err := syscall.Mount("rootfs", rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+	if err := unix.Mount("rootfs", rootfs, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 		fmt.Printf("Cannot mount ./root/rootfs: %v\n", err)
 		return err
 	}
@@ -86,7 +86,7 @@ func pivotRoot(pivotBase string, rootfs string) error {
 		return err
 	}
 
-	if err := syscall.PivotRoot("rootfs", path.Join(rootfs, oldrootfs)); err != nil {
+	if err := unix.PivotRoot("rootfs", path.Join(rootfs, oldrootfs)); err != nil {
 		fmt.Printf("PivotRoot failed: %v\n", err)
 		return err
 	}
@@ -96,7 +96,7 @@ func pivotRoot(pivotBase string, rootfs string) error {
 		return err
 	}
 
-	if err := syscall.Unmount(path.Join("/", oldrootfs), syscall.MNT_DETACH); err != nil {
+	if err := unix.Unmount(path.Join("/", oldrootfs), unix.MNT_DETACH); err != nil {
 		fmt.Printf("Cannot unmount /oldrootfs: %v\n", err)
 		return err
 	}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"syscall"
 )
 
 func main() {
@@ -28,6 +29,20 @@ func parent() {
 			unix.CLONE_NEWPID |
 			unix.CLONE_NEWNS |
 			unix.CLONE_NEWUSER,
+		UidMappings: []syscall.SysProcIDMap{
+			{
+				ContainerID: 0,
+				HostID:      os.Getuid(),
+				Size:        65535,
+			},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{
+				ContainerID: 0,
+				HostID:      os.Getgid(),
+				Size:        65535,
+			},
+		},
 	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

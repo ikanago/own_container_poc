@@ -16,7 +16,7 @@
 
 main
 unchroot
-root
+root*
 
 
 # Added by cargo

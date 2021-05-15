@@ -1,8 +1,8 @@
-use std::{env, ffi::CString};
+use std::{env, ffi::CString, fs, path::PathBuf};
 
 use nix::{
     mount, sched,
-    sys::{signal::Signal, wait},
+    sys::{signal::Signal, stat, wait},
     unistd,
 };
 
@@ -13,21 +13,46 @@ fn set_hostname(hostname: &str) {
     unistd::sethostname(hostname).expect("Cannot set hostname")
 }
 
-fn mount_proc() {
+fn mount_proc() -> nix::Result<()> {
     const PROC: &str = "proc";
     mount::mount(
         Some(PROC),
         "/proc",
         Some(PROC),
         mount::MsFlags::empty(),
-        None as Option<&str>,
+        None::<&str>,
     )
-    .expect("Failed to mount /proc");
+}
+
+fn mount_rootfs(rootfs: &str) -> nix::Result<()> {
+    const OLD_ROOT: &str = "oldroot";
+    let oldrootfs = PathBuf::from(rootfs).join(OLD_ROOT);
+    mount::mount(
+        Some(rootfs),
+        rootfs,
+        None::<&str>,
+        mount::MsFlags::MS_BIND | mount::MsFlags::MS_REC,
+        None::<&str>,
+    )?;
+    if let Err(err) = unistd::mkdir(
+        &oldrootfs,
+        stat::Mode::S_IRWXU | stat::Mode::S_IRWXG | stat::Mode::S_IRWXO,
+    ) {
+        if err != nix::Error::Sys(nix::errno::Errno::EEXIST) {
+            return Err(err);
+        }
+    }
+    unistd::pivot_root(rootfs, &oldrootfs)?;
+    unistd::chdir("/").unwrap();
+    mount::umount2("/oldroot", mount::MntFlags::MNT_DETACH)?;
+    fs::remove_dir_all(OLD_ROOT).unwrap();
+    Ok(())
 }
 
 fn init_container(command: &str) -> isize {
     set_hostname(HOSTNAME);
-    mount_proc();
+    mount_proc().unwrap();
+    mount_rootfs("rootfs").unwrap();
 
     let env_vars = env::vars()
         .map(|v| CString::new(format!("{}={}", v.0, v.1)).unwrap())

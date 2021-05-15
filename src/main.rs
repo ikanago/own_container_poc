@@ -6,18 +6,19 @@ use nix::{
     unistd,
 };
 
-const HOSTNAME: &'static str = "test";
+const HOSTNAME: &str = "test";
 const STACK_SIZE: usize = 1024;
 
 fn set_hostname(hostname: &str) {
     unistd::sethostname(hostname).expect("Cannot set hostname")
 }
 
-fn mount_proc() -> nix::Result<()> {
+fn mount_proc(rootfs: &str) -> nix::Result<()> {
     const PROC: &str = "proc";
+    let mount_to = PathBuf::from(rootfs).join(PROC);
     mount::mount(
         Some(PROC),
-        "/proc",
+        &mount_to,
         Some(PROC),
         mount::MsFlags::empty(),
         None::<&str>,
@@ -49,10 +50,10 @@ fn mount_rootfs(rootfs: &str) -> nix::Result<()> {
     Ok(())
 }
 
-fn init_container(command: &str) -> isize {
+fn init_container(command: &str, rootfs: &str) -> isize {
     set_hostname(HOSTNAME);
-    mount_proc().unwrap();
-    mount_rootfs("rootfs").unwrap();
+    mount_proc(rootfs).unwrap();
+    mount_rootfs(rootfs).unwrap();
 
     let env_vars = env::vars()
         .map(|v| CString::new(format!("{}={}", v.0, v.1)).unwrap())
@@ -63,12 +64,12 @@ fn init_container(command: &str) -> isize {
         &env_vars,
     )
     .unwrap();
-    return 0;
+    0
 }
 
 fn run_container(command: &str) {
     let stack = &mut [0u8; STACK_SIZE];
-    let child = Box::new(|| init_container(command));
+    let child = Box::new(|| init_container(command, "rootfs"));
     let clone_flags = sched::CloneFlags::CLONE_NEWUTS
         | sched::CloneFlags::CLONE_NEWUSER
         | sched::CloneFlags::CLONE_NEWPID

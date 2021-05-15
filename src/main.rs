@@ -50,29 +50,36 @@ fn mount_rootfs(rootfs: &str) -> nix::Result<()> {
     Ok(())
 }
 
-fn init_container(command: &str, rootfs: &str) -> isize {
+fn init_container(command: &str, args: &[String], rootfs: &str) -> isize {
     set_hostname(HOSTNAME);
     mount_proc(rootfs).unwrap();
     mount_rootfs(rootfs).unwrap();
 
-    let env_vars = env::vars()
-        .map(|v| CString::new(format!("{}={}", v.0, v.1)).unwrap())
+    let args = args
+        .iter()
+        .map(|arg| CString::new(arg.clone().into_bytes()).unwrap())
         .collect::<Vec<_>>();
-    unistd::execve(
-        &CString::new(command).unwrap(),
-        &[CString::new(command).unwrap()],
-        &env_vars,
-    )
-    .unwrap();
+    let env_vars = default_env_vars();
+    unistd::execve(&CString::new(command).unwrap(), &args, &env_vars).unwrap();
     0
 }
 
-fn run_container(command: &str) {
+fn default_env_vars() -> Vec<CString> {
+    let env_vars = vec![("PATH", "/usr/bin:/bin")];
+    env_vars
+        .into_iter()
+        .map(|(key, value)| CString::new(format!("{}={}", key, value)).unwrap())
+        .collect()
+}
+
+fn run_container(command: &str, args: &[String]) {
     let stack = &mut [0u8; STACK_SIZE];
-    let child = Box::new(|| init_container(command, "rootfs"));
+    let child = Box::new(|| init_container(command, args, "rootfs"));
     let clone_flags = sched::CloneFlags::CLONE_NEWUTS
         | sched::CloneFlags::CLONE_NEWUSER
         | sched::CloneFlags::CLONE_NEWPID
+        | sched::CloneFlags::CLONE_NEWNET
+        | sched::CloneFlags::CLONE_NEWIPC
         | sched::CloneFlags::CLONE_NEWNS;
     let child_pid = sched::clone(child, stack, clone_flags, Some(Signal::SIGCHLD as i32))
         .expect("Failed to run container");
@@ -80,6 +87,8 @@ fn run_container(command: &str) {
 }
 
 fn main() {
-    let command = "/bin/sh";
-    run_container(command);
+    let mut args = env::args().skip(1).collect::<Vec<_>>();
+    let command = args[0].clone();
+    args[0] = command.rsplit("/").next().unwrap().to_string();
+    run_container(&command, &args);
 }
